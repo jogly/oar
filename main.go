@@ -90,7 +90,7 @@ func main() {
 	addr := net.JoinHostPort(host, port)
 
 	log.Printf("Listening on %s", addr)
-	http.ListenAndServe(addr, nil)
+	http.ListenAndServe(addr, nil) // nolint: errcheck
 }
 
 func envOr(key, fallback string) string {
