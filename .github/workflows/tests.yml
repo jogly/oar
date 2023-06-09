@@ -18,7 +18,7 @@ jobs:
       - name: Test
         run: go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
 
-      - name: Uploa
+      - name: Upload
         uses: codecov/codecov-action@v3
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
