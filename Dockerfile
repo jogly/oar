@@ -10,7 +10,7 @@ RUN go mod download
 
 COPY . .
 
-RUN go build -o /app/bin/ ./main.go
+RUN go build -o /app/bin/ ./cmd/server
 
 FROM alpine:latest
 
@@ -18,4 +18,4 @@ WORKDIR /app
 
 COPY --from=builder /app/bin/ /app/bin/
 
-CMD ["/app/bin/main"]
+CMD ["/app/bin/server"]
