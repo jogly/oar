@@ -69,27 +69,27 @@ func (r *Router) IsUnsafe() bool {
 func (r *Router) ServeHTTP(w http.ResponseWriter, request *http.Request) {
 	origin := request.Header.Get("Origin")
 	if !matchDomain(strings.Split(origin, "."), r.Origins) {
-		r.log("request blocked: origin is not allowed: %s", origin)
+		r.logf("request blocked: origin is not allowed: %s", origin)
 		http.Error(w, "origin is not allowed", http.StatusForbidden)
 		return
 	}
 
 	u, err := r.parseIncoming(request.URL)
 	if err != nil {
-		r.log("request blocked: %s", err)
+		r.logf("request blocked: %s", err)
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
 	host := strings.Split(u.Host, ":")[0]
 	if !matchDomain(strings.Split(host, "."), r.Domains) {
-		r.log("request blocked: domain is not allowed: %s", host)
+		r.logf("request blocked: domain is not allowed: %s", host)
 		http.Error(w, "domain is not allowed", http.StatusForbidden)
 		return
 	}
 
 	originDisplay := fallback(origin, "???")
-	r.log("redirecting %s -> %s", originDisplay, u.Host)
+	r.logf("redirecting %s -> %s", originDisplay, u.Host)
 
 	http.Redirect(w, request, u.String(), http.StatusFound)
 }
@@ -103,7 +103,7 @@ func (r *Router) parseIncoming(u *url.URL) (*url.URL, error) {
 
 	stateB64, err := url.QueryUnescape(stateBytes)
 	if err != nil {
-		return nil, fmt.Errorf("state is not url encoded: %s", err)
+		return nil, fmt.Errorf("state is not url encoded: %w", err)
 	}
 
 	if stateB64 == "" {
@@ -112,18 +112,18 @@ func (r *Router) parseIncoming(u *url.URL) (*url.URL, error) {
 
 	stateJSON, err := base64.StdEncoding.DecodeString(stateB64)
 	if err != nil {
-		return nil, fmt.Errorf("state is not base64 encoded: %s", err)
+		return nil, fmt.Errorf("state is not base64 encoded: %w", err)
 	}
 
 	var state authState
 	err = json.Unmarshal(stateJSON, &state)
 	if err != nil {
-		return nil, fmt.Errorf("state is invalid json: %s", err)
+		return nil, fmt.Errorf("state is invalid json: %w", err)
 	}
 
 	out, err := url.ParseRequestURI(state.Redirect)
 	if err != nil {
-		return nil, fmt.Errorf("state.redirect is invalid URL: %s", err)
+		return nil, fmt.Errorf("state.redirect is invalid URL: %w", err)
 	}
 
 	if out.Host == "" {
@@ -148,7 +148,7 @@ func (r *Router) parseIncoming(u *url.URL) (*url.URL, error) {
 	return out, nil
 }
 
-func (r *Router) log(format string, v ...interface{}) {
+func (r *Router) logf(format string, v ...interface{}) {
 	if r.Logger != nil {
 		r.Logger(format, v...)
 	}
@@ -178,13 +178,6 @@ func ParseDomainPatterns(str string) []string {
 		patterns = append(patterns, domain)
 	}
 	return patterns
-}
-
-func headerOr(h http.Header, key, fallback string) string {
-	if value := h.Get(key); value != "" {
-		return value
-	}
-	return fallback
 }
 
 func matchDomain(hostParts []string, patterns []string) bool {
