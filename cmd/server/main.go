@@ -1,12 +1,11 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"net"
 	"net/http"
 	"os"
-	"strings"
+	"time"
 
 	"github.com/jogly/oauth-router/oar"
 )
@@ -22,8 +21,8 @@ func main() {
 		log.Print("unsafe domain pattern '*' allows secure codes to be sent to any domain")
 	}
 
-	log.Print(fmt.Sprintf("allowed domains: %v", router.Domains))
-	log.Print(fmt.Sprintf("allowed origins: %v", router.Origins))
+	log.Printf("allowed domains: %v", router.Domains)
+	log.Printf("allowed origins: %v", router.Origins)
 
 	http.Handle("/", router)
 
@@ -33,7 +32,15 @@ func main() {
 	addr := net.JoinHostPort(host, port)
 
 	log.Printf("listening on %s", addr)
-	http.ListenAndServe(addr, nil) // nolint: errcheck
+	server := &http.Server{
+		Addr:              addr,
+		ReadHeaderTimeout: strToDuration(envOr("READ_HEADER_TIMEOUT", "5s")),
+	}
+
+	err := server.ListenAndServe()
+	if err != nil {
+		log.Fatal(err)
+	}
 }
 
 func envOr(key, fallback string) string {
@@ -43,11 +50,10 @@ func envOr(key, fallback string) string {
 	return fallback
 }
 
-func strToBool(s string) bool {
-	switch strings.ToLower(s) {
-	case "true", "yes", "1":
-		return true
-	default:
-		return false
+func strToDuration(s string) time.Duration {
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		log.Fatalf("invalid duration: %s", err)
 	}
+	return d
 }
