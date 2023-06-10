@@ -7,7 +7,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/jogly/oauth-router/oar"
+	"github.com/jogly/oar"
 )
 
 func main() {
