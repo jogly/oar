@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -162,18 +161,23 @@ func (r *Router) logf(format string, v ...interface{}) {
 func ParseDomainPatterns(str string) []string {
 	domains := strings.Split(str, ",")
 	patterns := make([]string, 0, len(domains))
+	set := make(map[string]struct{}, len(domains))
 	for _, domain := range domains {
-		if strings.TrimSpace(domain) == "" {
+		if domain = strings.TrimSpace(domain); domain == "" {
 			continue
 		}
-		parts := strings.Split(domain, ".")
-		switch {
-		case len(parts) == 0:
+
+		if _, ok := set[domain]; ok {
 			continue
-		case len(parts) == 1 && parts[0] == "*":
-			return []string{"*"}
-		case len(parts) == 1:
-			log.Fatalf("invalid domain pattern: %s", domain)
+		}
+		set[domain] = struct{}{}
+
+		parts := strings.Split(domain, ".")
+		if len(parts) == 1 {
+			if parts[0] == "*" {
+				return []string{"*"}
+			}
+			panic("invalid domain pattern: " + domain)
 		}
 		patterns = append(patterns, domain)
 	}
