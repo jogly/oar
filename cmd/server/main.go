@@ -12,7 +12,7 @@ import (
 
 func main() {
 	router := &oar.Router{
-		Domains: oar.ParseDomainPatterns(envOr("ALLOWED_DOMAINS", "*")),
+		Targets: oar.ParseDomainPatterns(envOr("ALLOWED_DOMAINS", "*")),
 		Origins: oar.ParseDomainPatterns(envOr("ALLOWED_ORIGINS", "*")),
 		Logger:  log.Printf,
 	}
@@ -21,7 +21,7 @@ func main() {
 		log.Print("unsafe domain pattern '*' allows secure codes to be sent to any domain")
 	}
 
-	log.Printf("allowed domains: %v", router.Domains)
+	log.Printf("allowed domains: %v", router.Targets)
 	log.Printf("allowed origins: %v", router.Origins)
 
 	http.Handle("/", router)
