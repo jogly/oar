@@ -29,21 +29,22 @@ import (
 // # Security
 //
 // The redirect field's host must match one of the domain patterns specified in
-// the Domains field. If the Domains field is empty, the router will not
-// redirect any requests.
+// the [oar.Router.Targets] field. If the [oar.Router.Targets] field is empty,
+// the router will not redirect any requests.
 //
-// The router will also check the `Origin` header of the incoming request
-// and only allow requests from domains that match one of the patterns
-// specified in the Origins field. If the Origins field is empty, the router
-// will not allow requests from any domain.
+// The router will also check the `Origin` header of the incoming request and
+// only allow requests from domains that match one of the patterns specified in
+// the [oar.Router.Origins] field. If the [oar.Router.Origins] field is empty,
+// the router will not allow requests from any domain.
 //
-// The router will log all redirects using the Logger function. If the Logger
-// function is nil, no logs will be written.
+// The router will log all redirects using the function specified by
+// [oar.Router.Logger]. If the field is nil, no logs will be written.
 type Router struct {
-	// Domains is a list of allowed domain patterns that incoming requests can
+	// Targets is a list of allowed domain patterns that incoming requests can
 	// redirect to. `*` is unsafe, allowing a secure code to be sent to any domain.
-	Domains []string
-	// Origins is a list of allowed origin patterns that controls which domains
+	Targets []string
+
+	// Origins is a list of allowed domain patterns that controls which domains
 	// can make requests to this server. `*` is unsafe, allowing any domain to
 	// route through this server.
 	Origins []string
@@ -53,10 +54,17 @@ type Router struct {
 	Logger func(format string, v ...interface{})
 }
 
+func Unsafe() *Router {
+	return &Router{
+		Targets: []string{"*"},
+		Origins: []string{"*"},
+	}
+}
+
 // IsUnsafe returns true if the router is configured with an unsafe domain
 // pattern that allows redirects to any domain.
 func (r *Router) IsUnsafe() bool {
-	for _, pattern := range r.Domains {
+	for _, pattern := range r.Targets {
 		if pattern == "*" {
 			return true
 		}
@@ -66,34 +74,60 @@ func (r *Router) IsUnsafe() bool {
 
 // ServeHTTP handles an incoming request.
 func (r *Router) ServeHTTP(w http.ResponseWriter, request *http.Request) {
-	origin := request.Header.Get("Origin")
-	if !matchDomain(strings.Split(origin, "."), r.Origins) {
-		r.logf("request blocked: origin is not allowed: %s", origin)
-		http.Error(w, "origin is not allowed", http.StatusForbidden)
+	if request.Method != http.MethodGet {
+		r.badRequestf(w, "method not allowed: %s", request.Method)
 		return
 	}
 
-	u, err := r.parseIncoming(request.URL)
+	path := request.URL.Path
+	if path != "" && path != "/" {
+		r.badRequestf(w, "path not allowed: %s", request.URL.Path)
+		return
+	}
+
+	originURL, err := r.parseOrigin(request.Header.Get("Origin"))
 	if err != nil {
-		r.logf("request blocked: %s", err)
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		r.blockRequestf(w, "invalid origin: %s", err)
 		return
 	}
 
-	host := strings.Split(u.Host, ":")[0]
-	if !matchDomain(strings.Split(host, "."), r.Domains) {
-		r.logf("request blocked: domain is not allowed: %s", host)
-		http.Error(w, "domain is not allowed", http.StatusForbidden)
+	targetURL, err := r.parseTarget(request.URL)
+	if err != nil {
+		r.badRequestf(w, "invalid state: %s", err)
 		return
 	}
 
-	originDisplay := fallback(origin, "???")
-	r.logf("redirecting %s -> %s", originDisplay, u.Host)
+	if !matchURL(targetURL, r.Targets) {
+		r.blockRequestf(w, "target is not allowed: %s", targetURL.Host)
+		return
+	}
 
-	http.Redirect(w, request, u.String(), http.StatusFound)
+	r.logf("redirecting %s -> %s", originURL.Host, targetURL.Host)
+
+	http.Redirect(w, request, targetURL.String(), http.StatusFound)
 }
 
-func (r *Router) parseIncoming(u *url.URL) (*url.URL, error) {
+func (r *Router) parseOrigin(origin string) (*url.URL, error) {
+	originURL, err := url.Parse(origin)
+	if err != nil {
+		return nil, fmt.Errorf("parse origin: %w", err)
+	}
+
+	if originURL.Scheme == "" {
+		return originURL, fmt.Errorf("origin is missing scheme: %s", origin)
+	}
+
+	if originURL.Host == "" {
+		return originURL, fmt.Errorf("origin is missing host: %s", origin)
+	}
+
+	if !matchURL(originURL, r.Origins) {
+		return originURL, fmt.Errorf("origin is not allowed: %s", originURL.Host)
+	}
+	return originURL, nil
+}
+
+func (r *Router) parseTarget(u *url.URL) (*url.URL, error) {
 	incoming := u.Query()
 	stateBytes := incoming.Get("state")
 	if stateBytes == "" {
@@ -105,7 +139,7 @@ func (r *Router) parseIncoming(u *url.URL) (*url.URL, error) {
 		return nil, fmt.Errorf("state is not url encoded: %w", err)
 	}
 
-	if stateB64 == "" {
+	if strings.TrimSpace(stateB64) == "" {
 		return nil, errors.New("state is empty")
 	}
 
@@ -118,6 +152,10 @@ func (r *Router) parseIncoming(u *url.URL) (*url.URL, error) {
 	err = json.Unmarshal(stateJSON, &state)
 	if err != nil {
 		return nil, fmt.Errorf("state is invalid json: %w", err)
+	}
+
+	if state.Redirect == "" {
+		return nil, errors.New("state is missing redirect")
 	}
 
 	out, err := url.ParseRequestURI(state.Redirect)
@@ -145,6 +183,20 @@ func (r *Router) parseIncoming(u *url.URL) (*url.URL, error) {
 
 	out.RawQuery = merged.Encode()
 	return out, nil
+}
+
+func (r *Router) badRequestf(w http.ResponseWriter, format string, v ...interface{}) {
+	r.errRequestf(w, http.StatusBadRequest, "bad request: %s", format, v...)
+}
+
+func (r *Router) blockRequestf(w http.ResponseWriter, format string, v ...interface{}) {
+	r.errRequestf(w, http.StatusForbidden, "request blocked: %s", format, v...)
+}
+
+func (r *Router) errRequestf(w http.ResponseWriter, status int, errMsgf, format string, v ...interface{}) {
+	reason := fmt.Sprintf(format, v...)
+	r.logf(errMsgf, reason)
+	http.Error(w, reason, status)
 }
 
 func (r *Router) logf(format string, v ...interface{}) {
@@ -184,7 +236,9 @@ func ParseDomainPatterns(str string) []string {
 	return patterns
 }
 
-func matchDomain(hostParts []string, patterns []string) bool {
+func matchURL(u *url.URL, patterns []string) bool {
+	hostParts := strings.Split(u.Host, ".")
+
 	for _, pattern := range patterns {
 		pparts := strings.Split(pattern, ".")
 
@@ -193,11 +247,22 @@ func matchDomain(hostParts []string, patterns []string) bool {
 		}
 
 		match := true
-		for i, part := range pparts {
-			if part != "*" && part != hostParts[i] {
+		i, j := len(pparts)-1, len(hostParts)-1
+		for i >= 0 && j >= 0 {
+			ppart := pparts[i]
+			hpart := hostParts[j]
+
+			if ppart == "*" {
+				break
+			}
+
+			if ppart != hpart {
 				match = false
 				break
 			}
+
+			i--
+			j--
 		}
 
 		if match {
@@ -206,13 +271,6 @@ func matchDomain(hostParts []string, patterns []string) bool {
 	}
 
 	return false
-}
-
-func fallback(s, fallback string) string {
-	if s == "" {
-		return fallback
-	}
-	return s
 }
 
 type authState struct {
