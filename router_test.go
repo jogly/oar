@@ -110,6 +110,23 @@ func TestRouter_ServeHTTP(t *testing.T) {
 	})
 }
 
+func TestRouter_EmptyOriginRequests(t *testing.T) {
+	t.Parallel()
+
+	origin, target := "", "http://example.com"
+
+	router := oar.Router{
+		Targets: []string{"example.com"},
+		Origins: []string{"*"},
+	}
+
+	w := httptest.NewRecorder()
+	r := request(origin, makeState(target))
+	router.ServeHTTP(w, r)
+	expectStatus(t, w, http.StatusFound)
+	expectBody(t, w, target)
+}
+
 func TestRouter_URLMatching(t *testing.T) {
 	t.Parallel()
 
@@ -282,7 +299,9 @@ func request(origin, state string) *http.Request {
 	u.RawQuery = q.Encode()
 
 	r := httptest.NewRequest(http.MethodGet, u.String(), nil)
-	r.Header.Set("Origin", origin)
+	if origin != "" {
+		r.Header.Set("Origin", origin)
+	}
 
 	return r
 }
