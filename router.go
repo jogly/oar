@@ -85,10 +85,14 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, request *http.Request) {
 		return
 	}
 
-	originURL, err := r.parseOrigin(request.Header.Get("Origin"))
-	if err != nil {
-		r.blockRequestf(w, "invalid origin: %s", err)
-		return
+	var originHost string
+	if r.Origins[0] != "*" { // do not validate origins when Origins: ["*"]
+		originURL, err := r.parseOrigin(request.Header.Get("Origin"))
+		if err != nil {
+			r.blockRequestf(w, "invalid origin: %s", err)
+			return
+		}
+		originHost = originURL.Host
 	}
 
 	targetURL, err := r.parseTarget(request.URL)
@@ -102,7 +106,7 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, request *http.Request) {
 		return
 	}
 
-	r.logf("redirecting %s -> %s", originURL.Host, targetURL.Host)
+	r.logf("redirecting %s -> %s", originHost, targetURL.Host)
 
 	http.Redirect(w, request, targetURL.String(), http.StatusFound)
 }
